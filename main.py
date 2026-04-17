@@ -1,35 +1,42 @@
 from curl_cffi import requests
 from flask import Flask, Response
+import datetime
 import os
+import re
 
 app = Flask(__name__)
 
 @app.route("/")
-def get_and_convert_subject():
-    # ターゲットURL
+def get_subject_with_time():
     url = "https://bbs.eddibb.cc/liveedge/subject.txt"
     headers = {"User-Agent": "Monazilla/1.00"}
 
     try:
-        # 1. subject.txtをバイナリで取得
         res = requests.get(url, headers=headers, impersonate="chrome120", timeout=15)
-        
         if res.status_code != 200:
             return f"取得失敗: {res.status_code}", res.status_code
 
-        # 2. Shift_JIS(cp932)でデコードして日本語にする
-        # これで文字化け(yezとか)が消える
+        # Shift_JISでデコード（文字化け対策）
         raw_text = res.content.decode('cp932', errors='replace')
-
-        # 3. 掲示板が受け取れる「数値文字参照」形式に変換した版も作りたい場合や、
-        # そのままブラウザで見れるように整形して返す
         lines = raw_text.splitlines()
+        
         output = []
         for line in lines:
-            # スレタイ部分を安全な形式にしてリスト化
-            output.append(line)
+            # lineの形式: 1776429641.dat<>スレタイ (レス数)
+            match = re.match(r'(\d+)\.dat<>(.*)', line)
+            if match:
+                thread_id = int(match.group(1)) # スレID（UNIXタイムスタンプ）
+                title_part = match.group(2)    # スレタイとレス数
+                
+                # IDを日時に変換
+                dt = datetime.datetime.fromtimestamp(thread_id)
+                time_str = dt.strftime('%Y/%m/%d %H:%M:%S')
+                
+                # 「日時 | スレタイ (レス数)」の形式に整形
+                output.append(f"{time_str} | {title_part}")
+            else:
+                output.append(line)
 
-        # 改行を維持したまま、きれいなテキストで表示
         final_result = "\n".join(output)
         return Response(final_result, mimetype='text/plain; charset=utf-8')
 
