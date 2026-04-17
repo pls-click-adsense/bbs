@@ -1,22 +1,40 @@
-from flask import Flask, request, Response
+from curl_cffi import requests
+from flask import Flask, Response
 import os
 
 app = Flask(__name__)
 
 @app.route("/")
-def encode_everything():
-    # URLのパラメータ (?text=...) から文字を受け取る。空なら説明を出す。
-    input_text = request.args.get('text', "")
-    
-    if not input_text:
-        return "URLの末尾に ?text=変換したい文字 を入れてね。"
+def get_and_convert_subject():
+    # ターゲットURL
+    url = "https://bbs.eddibb.cc/liveedge/subject.txt"
+    headers = {"User-Agent": "Monazilla/1.00"}
 
-    # 全文字スキャンして、ASCII（英数字など）以外は全部数値文字参照に変換
-    # 😶 でも 🥺 でも 漢字でも、Shift_JIS外の文字はこれで掲示板に通るようになる
-    encoded_text = "".join([f"&#{ord(c)};" if ord(c) > 128 else c for c in input_text])
-    
-    # 掲示板にコピペしやすいように、プレーンテキストで結果だけを返す
-    return Response(encoded_text, mimetype='text/plain')
+    try:
+        # 1. subject.txtをバイナリで取得
+        res = requests.get(url, headers=headers, impersonate="chrome120", timeout=15)
+        
+        if res.status_code != 200:
+            return f"取得失敗: {res.status_code}", res.status_code
+
+        # 2. Shift_JIS(cp932)でデコードして日本語にする
+        # これで文字化け(yezとか)が消える
+        raw_text = res.content.decode('cp932', errors='replace')
+
+        # 3. 掲示板が受け取れる「数値文字参照」形式に変換した版も作りたい場合や、
+        # そのままブラウザで見れるように整形して返す
+        lines = raw_text.splitlines()
+        output = []
+        for line in lines:
+            # スレタイ部分を安全な形式にしてリスト化
+            output.append(line)
+
+        # 改行を維持したまま、きれいなテキストで表示
+        final_result = "\n".join(output)
+        return Response(final_result, mimetype='text/plain; charset=utf-8')
+
+    except Exception as e:
+        return f"エラー: {str(e)}", 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
